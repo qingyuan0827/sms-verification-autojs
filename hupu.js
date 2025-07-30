@@ -35,8 +35,8 @@ function clickLoginButton() {
 
     // 方法1：常规控件点击
     let loginButton = text("立即登录").findOne(5000) ||
-                     desc("立即登录").findOne(5000) ||
-                     className("Button").filter(b => /登录/.test(b.text() || b.desc())).findOne(5000);
+        desc("立即登录").findOne(5000) ||
+        className("Button").filter(b => /登录/.test(b.text() || b.desc())).findOne(5000);
 
     if (loginButton) {
         console.log("按钮信息:", JSON.stringify({
@@ -84,7 +84,7 @@ function isLoginPageVisible() {
         { desc: "验证码" },
         { desc: "登录" }
     ];
-    
+
     // 检查任一关键元素存在即可
     return keyElements.some(item => {
         if (item.text) {
@@ -92,6 +92,97 @@ function isLoginPageVisible() {
         }
         return false;
     });
+}
+
+function selectCountry() {
+    // 1. 增强版国家代码选择框点击（适配华为EMUI）
+    let countryCode = desc("+86").findOne(3000) ||
+                     text("+86").findOne(3000) ||
+                     className("android.widget.TextView").filter(tv => {
+                         return (tv.text() && tv.text().includes("+86")) ||
+                                (tv.desc() && tv.desc().includes("+86"));
+                     }).findOne(3000);
+
+    if (countryCode) {
+        console.log("找到国家代码选择框，准备点击");
+        let bounds = countryCode.bounds();
+        
+        // 华为设备需要更精确的点击（点击右侧空白区域）
+        click(bounds.right + 50, bounds.centerY());
+        sleep(2000);
+        
+        // 2. 等待国家列表完全展开（根据图片1判断）
+        let listView = className("ListView").findOne(5000);
+        if (!listView) {
+            console.log("检测到列表未展开，尝试备用点击方案");
+            // 根据图片1的布局，点击"选择国家或地区"标题下方
+            let title = text("选择国家或地区").findOne(1000);
+            if (title) {
+                click(title.bounds().centerX(), title.bounds().bottom + 100);
+                sleep(2000);
+                listView = className("ListView").findOne(5000);
+            }
+        }
+
+        if (listView) {
+            console.log("国家列表已展开");
+            
+            // 3. 快速滑动到J区域（柬埔寨在J区域）
+            let listBounds = listView.bounds();
+            let startY = listBounds.bottom - 100;
+            let endY = listBounds.top + 100;
+            
+            // 先滑动到顶部（根据图片1的常用国家列表）
+            for (let i = 0; i < 2; i++) {
+                swipe(device.width/2, startY, device.width/2, endY, 800);
+                sleep(1000);
+            }
+            
+            // 4. 精确查找柬埔寨（根据图片2位置）
+            let found = false;
+            for (let i = 0; i < 8; i++) { // 最多滑动8次
+                // 优先查找精确匹配
+                let cambodia = textMatches(/柬埔寨\s*\+855/).findOne(500) ||
+                              descMatches(/柬埔寨\s*\+855/).findOne(500);
+                
+                if (cambodia) {
+                    console.log("找到柬埔寨选项");
+                    let camBounds = cambodia.bounds();
+                    
+                    // 华为需要点击文字区域而非整行（根据图片2布局）
+                    click(camBounds.left + 100, camBounds.centerY());
+                    sleep(3000);
+                    
+                    // 验证选择成功
+                    if (text("+855").exists() || desc("+855").exists()) {
+                        console.log("成功选择柬埔寨(+855)");
+                        return true;
+                    }
+                }
+                
+                // 智能滑动（根据图片2中柬埔寨位于加拿大和捷克之间）
+                if (text("加拿大 +1").exists()) { // 柬埔寨在加拿大下方
+                    console.log("定位到加拿大，准备下滑到柬埔寨");
+                    swipe(device.width/2, device.height*0.6, 
+                          device.width/2, device.height*0.4, 500);
+                } 
+                else if (text("捷克 +420").exists()) { // 柬埔寨在捷克上方
+                    console.log("定位到捷克，准备上滑到柬埔寨");
+                    swipe(device.width/2, device.height*0.4,
+                          device.width/2, device.height*0.6, 500);
+                }
+                else {
+                    // 默认滑动方式
+                    swipe(device.width/2, device.height*0.7,
+                          device.width/2, device.height*0.3, 500);
+                }
+                sleep(1000);
+            }
+        }
+    }
+    
+    console.error("国家选择失败");
+    return false;
 }
 
 function myClickTask() {
@@ -114,8 +205,21 @@ function myClickTask() {
             if (isAppInstalled(app.pkg)) {
                 const success = launchApp(app.pkg);
                 console.log(app.name + "启动结果:", success); // 改用字符串拼接
-                if (success) {
-                    clickLoginButton(); // 修改为点击“立即登录”按钮
+                if (!success) {
+                    return;
+                }
+                // 点击登录按钮并验证
+                if (clickLoginButton()) {
+                    console.log("成功进入登录页面");
+                    // 这里可以添加后续操作...
+                    if (selectCountry()) {
+                        // 验证是否成功切换到+855
+                        let newCode = desc("+855").findOne(3000) ||
+                            text("+855").findOne(3000);
+                        if (newCode) {
+                            console.log("成功选择柬埔寨(+855)");
+                        }
+                    }
                 }
             } else {
                 console.error(app.name + "未安装!"); // 改用字符串拼接
