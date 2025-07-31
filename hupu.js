@@ -95,88 +95,83 @@ function isLoginPageVisible() {
 }
 
 function selectCountry() {
-    // 1. 增强版国家代码选择框点击（适配华为EMUI）
-    let countryCode = desc("+86").findOne(3000) ||
-                     text("+86").findOne(3000) ||
-                     className("android.widget.TextView").filter(tv => {
-                         return (tv.text() && tv.text().includes("+86")) ||
-                                (tv.desc() && tv.desc().includes("+86"));
-                     }).findOne(3000);
+    // 1. 点击国家代码选择框
+    let countryCode = text("+86").findOne(3000) || desc("+86").findOne(3000);
+    
+    if (!countryCode) {
+        // 备用查找：通过相邻控件定位
+        let phoneLabel = text("请输入手机号").findOne(3000);
+        if (phoneLabel) {
+            let siblings = phoneLabel.parent().children();
+            for (let i = 0; i < siblings.length; i++) {
+                let view = siblings[i];
+                let txt = view.text() || "";
+                let dsc = view.desc() || "";
+                if (txt.includes("+86") || dsc.includes("+86")) {
+                    countryCode = view;
+                    break;
+                }
+            }
+        }
+    }
 
     if (countryCode) {
         console.log("找到国家代码选择框，准备点击");
         let bounds = countryCode.bounds();
         
-        // 华为设备需要更精确的点击（点击右侧空白区域）
-        click(bounds.right + 50, bounds.centerY());
+        // 精确点击位置（根据截图中的+86右侧）
+        click(bounds.right - 20, bounds.centerY());
         sleep(2000);
         
-        // 2. 等待国家列表完全展开（根据图片1判断）
-        let listView = className("ListView").findOne(5000);
-        if (!listView) {
-            console.log("检测到列表未展开，尝试备用点击方案");
-            // 根据图片1的布局，点击"选择国家或地区"标题下方
-            let title = text("选择国家或地区").findOne(1000);
-            if (title) {
-                click(title.bounds().centerX(), title.bounds().bottom + 100);
-                sleep(2000);
-                listView = className("ListView").findOne(5000);
+        // 2. 确认列表已展开
+        let listExpanded = false;
+        for (let i = 0; i < 2; i++) {
+            if (text("选择国家或地区").exists() || 
+                text("中国 +86").exists()) {
+                listExpanded = true;
+                break;
             }
+            click(bounds.right - 20, bounds.centerY());
+            sleep(2000);
         }
 
-        if (listView) {
+        if (listExpanded) {
             console.log("国家列表已展开");
             
-            // 3. 快速滑动到J区域（柬埔寨在J区域）
-            let listBounds = listView.bounds();
-            let startY = listBounds.bottom - 100;
-            let endY = listBounds.top + 100;
-            
-            // 先滑动到顶部（根据图片1的常用国家列表）
+            // 3. 直接滑动到J区域（柬埔寨所在区域）
+            // 先滑动到顶部（确保从固定位置开始）
             for (let i = 0; i < 2; i++) {
-                swipe(device.width/2, startY, device.width/2, endY, 800);
+                swipe(device.width/2, device.height*0.8, 
+                      device.width/2, device.height*0.2, 800);
                 sleep(1000);
             }
             
-            // 4. 精确查找柬埔寨（根据图片2位置）
-            let found = false;
-            for (let i = 0; i < 8; i++) { // 最多滑动8次
-                // 优先查找精确匹配
-                let cambodia = textMatches(/柬埔寨\s*\+855/).findOne(500) ||
-                              descMatches(/柬埔寨\s*\+855/).findOne(500);
+            // 4. 精准滑动到柬埔寨（基于截图位置）
+            for (let i = 0; i < 30; i++) {
+                // 查找柬埔寨
+                let cambodia = text("柬埔寨").findOne(1000);
+                if (!cambodia) {
+                    // 微调滑动（每次滑动2-3个条目高度）
+                    swipe(device.width/2, device.height*0.6,
+                          device.width/2, device.height*0.4, 500);
+                    sleep(800);
+                    cambodia = text("柬埔寨").findOne(1000);
+                }
                 
                 if (cambodia) {
                     console.log("找到柬埔寨选项");
                     let camBounds = cambodia.bounds();
                     
-                    // 华为需要点击文字区域而非整行（根据图片2布局）
-                    click(camBounds.left + 100, camBounds.centerY());
-                    sleep(3000);
+                    // 点击国家名称区域（避免点击右侧代码）
+                    click(camBounds.left + 50, camBounds.centerY());
+                    sleep(2000);
                     
                     // 验证选择成功
-                    if (text("+855").exists() || desc("+855").exists()) {
+                    if (text("+855").exists()) {
                         console.log("成功选择柬埔寨(+855)");
                         return true;
                     }
                 }
-                
-                // 智能滑动（根据图片2中柬埔寨位于加拿大和捷克之间）
-                if (text("加拿大 +1").exists()) { // 柬埔寨在加拿大下方
-                    console.log("定位到加拿大，准备下滑到柬埔寨");
-                    swipe(device.width/2, device.height*0.6, 
-                          device.width/2, device.height*0.4, 500);
-                } 
-                else if (text("捷克 +420").exists()) { // 柬埔寨在捷克上方
-                    console.log("定位到捷克，准备上滑到柬埔寨");
-                    swipe(device.width/2, device.height*0.4,
-                          device.width/2, device.height*0.6, 500);
-                }
-                else {
-                    // 默认滑动方式
-                    swipe(device.width/2, device.height*0.7,
-                          device.width/2, device.height*0.3, 500);
-                }
-                sleep(1000);
             }
         }
     }
