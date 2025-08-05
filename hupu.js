@@ -1,6 +1,32 @@
 /***
 {"version":12,"description":"简易 js 脚本","timeout":600,"params":[{"name":"test_input","type":"txt","description":"测试文本框"},{"name":"test_list","type":"list","description":"测试下拉框","items":[{"key":"1","value":"下拉选项一"},{"key":"2","value":"下拉选项二"},{"key":"3","value":"下拉选项三"}]}]}
 ***/
+// hupu.js 开头代码
+let APIClient;
+
+// 方案1：优先用 require 加载（标准模块化）
+try {
+    APIClient = require("/sdcard/脚本/APIClient.js");
+    console.log("APIClient 通过 require 加载成功");
+} catch (e) {
+    console.error("require 加载失败:", e.message);
+    
+    // 方案2：备用动态加载（兼容性更强）
+    try {
+        engines.execScriptFile("/sdcard/脚本/APIClient.js");
+        sleep(2000); // 等待执行完成
+        APIClient = global.APIClient; // 尝试从全局获取
+        console.log("APIClient 通过 execScriptFile 加载成功");
+    } catch (e2) {
+        console.error("execScriptFile 加载失败:", e2.message);
+    }
+}
+
+// 验证是否加载成功
+console.log("APIClient 可用方法:", {
+    fetchPhoneNumber: typeof APIClient.fetchPhoneNumber,
+    getVerifyCode: typeof APIClient.getVerifyCode
+});
 
 function isAppInstalled(pkg) {
     try {
@@ -97,7 +123,7 @@ function isLoginPageVisible() {
 function selectCountry() {
     // 1. 点击国家代码选择框
     let countryCode = text("+86").findOne(3000) || desc("+86").findOne(3000);
-    
+
     if (!countryCode) {
         // 备用查找：通过相邻控件定位
         let phoneLabel = text("请输入手机号").findOne(3000);
@@ -118,15 +144,15 @@ function selectCountry() {
     if (countryCode) {
         console.log("找到国家代码选择框，准备点击");
         let bounds = countryCode.bounds();
-        
+
         // 精确点击位置（根据截图中的+86右侧）
         click(bounds.right - 20, bounds.centerY());
         sleep(2000);
-        
+
         // 2. 确认列表已展开
         let listExpanded = false;
         for (let i = 0; i < 2; i++) {
-            if (text("选择国家或地区").exists() || 
+            if (text("选择国家或地区").exists() ||
                 text("中国 +86").exists()) {
                 listExpanded = true;
                 break;
@@ -137,35 +163,35 @@ function selectCountry() {
 
         if (listExpanded) {
             console.log("国家列表已展开");
-            
+
             // 3. 直接滑动到J区域（柬埔寨所在区域）
             // 先滑动到顶部（确保从固定位置开始）
             for (let i = 0; i < 2; i++) {
-                swipe(device.width/2, device.height*0.8, 
-                      device.width/2, device.height*0.2, 800);
+                swipe(device.width / 2, device.height * 0.8,
+                    device.width / 2, device.height * 0.2, 800);
                 sleep(1000);
             }
-            
+
             // 4. 精准滑动到柬埔寨（基于截图位置）
             for (let i = 0; i < 30; i++) {
                 // 查找柬埔寨
                 let cambodia = text("柬埔寨").findOne(1000);
                 if (!cambodia) {
                     // 微调滑动（每次滑动2-3个条目高度）
-                    swipe(device.width/2, device.height*0.6,
-                          device.width/2, device.height*0.4, 500);
+                    swipe(device.width / 2, device.height * 0.6,
+                        device.width / 2, device.height * 0.4, 500);
                     sleep(800);
                     cambodia = text("柬埔寨").findOne(1000);
                 }
-                
+
                 if (cambodia) {
                     console.log("找到柬埔寨选项");
                     let camBounds = cambodia.bounds();
-                    
+
                     // 点击国家名称区域（避免点击右侧代码）
                     click(camBounds.left + 50, camBounds.centerY());
                     sleep(2000);
-                    
+
                     // 验证选择成功
                     if (text("+855").exists()) {
                         console.log("成功选择柬埔寨(+855)");
@@ -175,7 +201,7 @@ function selectCountry() {
             }
         }
     }
-    
+
     console.error("国家选择失败");
     return false;
 }
@@ -212,7 +238,12 @@ function myClickTask() {
                         let newCode = desc("+855").findOne(3000) ||
                             text("+855").findOne(3000);
                         if (newCode) {
-                            console.log("成功选择柬埔寨(+855)");
+                            // 获取手机号（带兼容处理）
+                            var phoneNumber = APIClient.fetchPhoneNumber();
+                            console.log("获取到手机号码：", phoneNumber);
+                            // 输入手机号
+                            inputPhoneNumber(phoneNumber);
+                            return true;
                         }
                     }
                 }
@@ -225,6 +256,87 @@ function myClickTask() {
     } catch (error) {
         console.error("任务执行出错:", error.toString());
     }
+}
+
+function inputPhoneNumber(phoneNumber) {
+    // 定义兼容的过滤器函数
+    function isPhoneInput(v) {
+        var className = v.className();
+        var text = v.text() || "";
+        var desc = v.desc() || "";
+        return className === "EditText" && 
+              (/请输入手机号/.test(text) || /请输入手机号/.test(desc));
+    }
+
+    // 查找输入框（使用传统函数）
+    var phoneInput = className("EditText").filter(isPhoneInput).findOne(10000);
+    
+    if (!phoneInput) {
+        console.error("未找到输入框，尝试备用定位方式");
+        // 备用方案：通过位置特征查找
+        phoneInput = className("EditText").find().filter(function(v) {
+            var bounds = v.bounds();
+            return bounds.width() > device.width * 0.6 && 
+                   bounds.height() > 50 &&
+                   (v.text() === "" || /手机号/.test(v.text() || v.desc()));
+        })[0];
+    }
+
+    if (phoneInput) {
+        console.log("输入框信息:", {
+            text: phoneInput.text(),
+            desc: phoneInput.desc(),
+            bounds: phoneInput.bounds()
+        });
+
+        // 尝试多种输入方式
+        tryInputMethods(phoneInput, phoneNumber);
+    } else {
+        console.error("最终未找到输入框，使用坐标输入");
+        click(device.width * 0.6, device.height * 0.35);
+        sleep(1000);
+        setText(phoneNumber);
+    }
+}
+
+function tryInputMethods(inputView, text) {
+    var methods = [
+        function() { // 方法1：直接setText
+            inputView.setText(text);
+            return "直接设置";
+        },
+        function() { // 方法2：模拟点击输入
+            click(inputView.bounds().centerX(), inputView.bounds().centerY());
+            sleep(1000);
+            setText(text);
+            return "模拟点击输入";
+        },
+        function() { // 方法3：粘贴板方式
+            setClip(text);
+            click(inputView.bounds().centerX(), inputView.bounds().centerY());
+            sleep(500);
+            paste();
+            return "粘贴方式";
+        }
+    ];
+
+    for (var i = 0; i < methods.length; i++) {
+        try {
+            var result = methods[i]();
+            console.log("输入方式[" + (i+1) + "]成功:", result);
+            
+            // 验证输入
+            sleep(2000);
+            var currentText = inputView.text() || inputView.desc() || "";
+            if (currentText.includes(text)) {
+                console.log("√ 输入验证成功");
+                return;
+            }
+        } catch (e) {
+            console.error("方式[" + (i+1) + "]失败:", e);
+        }
+    }
+    console.error("所有输入方式均失败");
 }
 
 function main() {
