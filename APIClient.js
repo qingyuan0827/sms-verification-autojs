@@ -114,12 +114,6 @@ var APIClient = {
     }
 };
 
-const APIClient = {
-    fetchPhoneNumber: fetchPhoneNumber,
-    getVerifyCode: getVerifyCode,  // 新增方法
-    getId: function() { return id; }
-};
-
 module.exports = APIClient;  // 关键导出
 
 // 测试代码

@@ -1,32 +1,14 @@
 /***
 {"version":12,"description":"简易 js 脚本","timeout":600,"params":[{"name":"test_input","type":"txt","description":"测试文本框"},{"name":"test_list","type":"list","description":"测试下拉框","items":[{"key":"1","value":"下拉选项一"},{"key":"2","value":"下拉选项二"},{"key":"3","value":"下拉选项三"}]}]}
 ***/
-// hupu.js 开头代码
+// 直接使用require，如果失败则终止脚本
 let APIClient;
-
-// 方案1：优先用 require 加载（标准模块化）
 try {
     APIClient = require("/sdcard/脚本/APIClient.js");
-    console.log("APIClient 通过 require 加载成功");
 } catch (e) {
-    console.error("require 加载失败:", e.message);
-    
-    // 方案2：备用动态加载（兼容性更强）
-    try {
-        engines.execScriptFile("/sdcard/脚本/APIClient.js");
-        sleep(2000); // 等待执行完成
-        APIClient = global.APIClient; // 尝试从全局获取
-        console.log("APIClient 通过 execScriptFile 加载成功");
-    } catch (e2) {
-        console.error("execScriptFile 加载失败:", e2.message);
-    }
+    console.error("加载APIClient失败:", e);
+    exit();
 }
-
-// 验证是否加载成功
-console.log("APIClient 可用方法:", {
-    fetchPhoneNumber: typeof APIClient.fetchPhoneNumber,
-    getVerifyCode: typeof APIClient.getVerifyCode
-});
 
 function isAppInstalled(pkg) {
     try {
@@ -86,6 +68,26 @@ function clickLoginButton() {
         let { width, height } = device;
         click(width * 0.8, height * 0.9); // 右下角区域
         console.log("尝试动态坐标点击");
+        sleep(3000);
+    }
+
+    let altLoginButton = text("使用其他账号登录").findOne(5000) ||
+                       desc("使用其他账号登录").findOne(5000) ||
+                       className("Button").filter(b => /使用其他账号登录/.test(b.text() || b.desc())).findOne(5000);
+
+    if (altLoginButton) {
+        console.log("发现使用其他账号登录，准备点击");
+        console.log("按钮信息:", JSON.stringify({
+            text: altLoginButton.text(),
+            desc: altLoginButton.desc(),
+            bounds: altLoginButton.bounds()
+        }));
+        altLoginButton.click();
+        sleep(3000);
+    } else {
+        console.log("未找到使用其他账号登录按钮，尝试坐标点击");
+        // 根据图片2布局，点击屏幕中间偏下位置
+        click(device.width * 0.5, device.height * 0.6);
         sleep(3000);
     }
 
@@ -258,85 +260,131 @@ function myClickTask() {
     }
 }
 
+// 增强版手机号输入函数
 function inputPhoneNumber(phoneNumber) {
-    // 定义兼容的过滤器函数
-    function isPhoneInput(v) {
-        var className = v.className();
-        var text = v.text() || "";
-        var desc = v.desc() || "";
-        return className === "EditText" && 
-              (/请输入手机号/.test(text) || /请输入手机号/.test(desc));
-    }
-
-    // 查找输入框（使用传统函数）
-    var phoneInput = className("EditText").filter(isPhoneInput).findOne(10000);
+    console.log("正在输入手机号...");
     
-    if (!phoneInput) {
-        console.error("未找到输入框，尝试备用定位方式");
-        // 备用方案：通过位置特征查找
-        phoneInput = className("EditText").find().filter(function(v) {
-            var bounds = v.bounds();
-            return bounds.width() > device.width * 0.6 && 
-                   bounds.height() > 50 &&
-                   (v.text() === "" || /手机号/.test(v.text() || v.desc()));
-        })[0];
-    }
-
-    if (phoneInput) {
-        console.log("输入框信息:", {
-            text: phoneInput.text(),
-            desc: phoneInput.desc(),
-            bounds: phoneInput.bounds()
-        });
-
-        // 尝试多种输入方式
-        tryInputMethods(phoneInput, phoneNumber);
-    } else {
-        console.error("最终未找到输入框，使用坐标输入");
-        click(device.width * 0.6, device.height * 0.35);
-        sleep(1000);
-        setText(phoneNumber);
-    }
-}
-
-function tryInputMethods(inputView, text) {
-    var methods = [
-        function() { // 方法1：直接setText
-            inputView.setText(text);
-            return "直接设置";
-        },
-        function() { // 方法2：模拟点击输入
-            click(inputView.bounds().centerX(), inputView.bounds().centerY());
-            sleep(1000);
-            setText(text);
-            return "模拟点击输入";
-        },
-        function() { // 方法3：粘贴板方式
-            setClip(text);
-            click(inputView.bounds().centerX(), inputView.bounds().centerY());
-            sleep(500);
-            paste();
-            return "粘贴方式";
-        }
-    ];
-
-    for (var i = 0; i < methods.length; i++) {
+    // 1. 定义输入框查找条件（兼容Rhino引擎）
+    function isPhoneInput(v) {
         try {
-            var result = methods[i]();
-            console.log("输入方式[" + (i+1) + "]成功:", result);
+            const text = v.text() || v.desc() || "";
+            const bounds = v.bounds();
+            return /请输入手机号/.test(text) && bounds.width() > device.width * 0.6;
+        } catch (e) {
+            return false;
+        }
+    }
+    
+    // 2. 安全查找输入框
+    let phoneInput = null;
+    try {
+        // 方法1：使用find() + filter()替代findOne(function)
+        let inputs = className("EditText").find();
+        for (let i = 0; i < inputs.length; i++) {
+            if (isPhoneInput(inputs[i])) {
+                phoneInput = inputs[i];
+                break;
+            }
+        }
+    } catch (e) {
+        console.error("高级查找失败:", e);
+    }
+    
+    // 3. 备用查找方式
+    if (!phoneInput) {
+        console.log("使用备用定位策略");
+        // 方法2：通过相邻文本控件定位
+        let label = text("请输入手机号").findOne(3000);
+        if (label) {
+            phoneInput = label.parent().findOne(className("EditText"));
+        }
+        // 方法3：通过位置特征查找
+        if (!phoneInput) {
+            phoneInput = className("EditText").find().filter(function(v) {
+                return v.bounds().width() > device.width * 0.5 && 
+                       v.bounds().height() > 30;
+            })[0];
+        }
+    }
+    
+    // 4. 输入处理（修复press()问题）
+    if (phoneInput) {
+        console.log("输入框定位成功:", {
+            bounds: phoneInput.bounds(),
+            text: phoneInput.text() || "",
+            desc: phoneInput.desc() || ""
+        });
+        
+        try {
+            // 确保获取焦点
+            click(phoneInput.bounds().centerX(), phoneInput.bounds().centerY());
+            sleep(500);
             
-            // 验证输入
-            sleep(2000);
-            var currentText = inputView.text() || inputView.desc() || "";
-            if (currentText.includes(text)) {
-                console.log("√ 输入验证成功");
-                return;
+            // 清空输入框
+            phoneInput.setText("");
+            sleep(500);
+            
+            // 修复：使用正确的输入方式
+            // 方法1：直接setText（优先尝试）
+            try {
+                phoneInput.setText(phoneNumber);
+                console.log("使用setText直接输入");
+            } catch (e) {
+                console.warn("setText失败，使用备用输入方式:", e);
+                // 方法2：分步输入（兼容旧版Auto.js）
+                for (let i = 0; i < phoneNumber.length; i++) {
+                    let char = phoneNumber[i];
+                    // 修复：使用正确的press方法
+                    if (typeof press === 'function') {
+                        press(char); // 新版Auto.js
+                    } else {
+                        KeyCode(char); // 旧版兼容
+                    }
+                    sleep(50);
+                }
+            }
+            sleep(1000);
+            
+            // 验证输入（宽松匹配）
+            const currentText = phoneInput.text() || phoneInput.desc() || "";
+            if (currentText.replace(/\D/g, '').includes(phoneNumber.replace(/\D/g, ''))) {
+                console.log("√ 输入验证通过");
+                return true;
             }
         } catch (e) {
-            console.error("方式[" + (i+1) + "]失败:", e);
+            console.error("输入过程异常:", e);
         }
     }
-    console.error("所有输入方式均失败");
+    
+    // 5. 终极备用方案
+    // console.log("使用智能坐标输入");
+    // click(device.width * 0.5, device.height * 0.35);
+    // sleep(500);
+    // setText(phoneNumber);
+    return true;
+}
+
+// 验证码输入函数
+function inputVerifyCode(code) {
+    console.log("正在输入验证码...");
+    
+    let codeInput = className("EditText").filter(v => {
+        const text = v.text() || v.desc();
+        return /验证码/.test(text);
+    }).findOne(5000);
+
+    if (codeInput) {
+        console.log("验证码输入框信息:", JSON.stringify({
+            bounds: codeInput.bounds()
+        }));
+        
+        codeInput.setText(code);
+        sleep(1000);
+        return true;
+    }
+    
+    console.error("验证码输入失败");
+    return false;
 }
 
 function main() {
