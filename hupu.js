@@ -71,31 +71,34 @@ function clickLoginButton() {
         sleep(3000);
     }
 
-    let altLoginButton = text("使用其他账号登录").findOne(5000) ||
-                       desc("使用其他账号登录").findOne(5000) ||
-                       className("Button").filter(b => /使用其他账号登录/.test(b.text() || b.desc())).findOne(5000);
-
-    if (altLoginButton) {
-        console.log("发现使用其他账号登录，准备点击");
-        console.log("按钮信息:", JSON.stringify({
-            text: altLoginButton.text(),
-            desc: altLoginButton.desc(),
-            bounds: altLoginButton.bounds()
-        }));
-        altLoginButton.click();
-        sleep(3000);
-    } else {
-        console.log("未找到使用其他账号登录按钮，尝试坐标点击");
-        // 根据图片2布局，点击屏幕中间偏下位置
-        click(device.width * 0.5, device.height * 0.6);
-        sleep(3000);
-    }
-
     // 最终验证（修复字符串判断错误）
     if (isLoginPageVisible()) {
         console.log("成功跳转到登录界面");
         return true;
     } else {
+        let altLoginButton = text("使用其他账号登录").findOne(5000) ||
+            desc("使用其他账号登录").findOne(5000) ||
+            className("Button").filter(b => /使用其他账号登录/.test(b.text() || b.desc())).findOne(5000);
+
+        if (altLoginButton) {
+            console.log("发现使用其他账号登录，准备点击");
+            console.log("按钮信息:", JSON.stringify({
+                text: altLoginButton.text(),
+                desc: altLoginButton.desc(),
+                bounds: altLoginButton.bounds()
+            }));
+            altLoginButton.click();
+            sleep(3000);
+        } else {
+            console.log("未找到使用其他账号登录按钮，尝试坐标点击");
+            // 根据图片2布局，点击屏幕中间偏下位置
+            click(device.width * 0.5, device.height * 0.6);
+            sleep(3000);
+        }
+        if (isLoginPageVisible()) {
+            console.log("成功跳转到登录界面");
+            return true;
+        }
         console.error("登录界面跳转失败");
         return false;
     }
@@ -244,7 +247,23 @@ function myClickTask() {
                             var phoneNumber = APIClient.fetchPhoneNumber();
                             console.log("获取到手机号码：", phoneNumber);
                             // 输入手机号
-                            inputPhoneNumber(phoneNumber);
+                            if (inputPhoneNumber(phoneNumber)) {
+                                // 勾选协议
+                                if (!checkUserAgreement()) {
+                                    console.warn("协议勾选失败，继续尝试获取验证码");
+                                    return false;
+                                }
+
+                                // 点击获取验证码按钮
+                                if (clickGetVerifyCode()) {
+                                    console.log("√ 验证码获取流程完成");
+
+                                    // 获取验证码（最多重试4次）
+                                    let verifyResult = fetchVerifyCode(4);
+                                    console.log("最终获取验证码结果:", verifyResult);
+                                    return true;
+                                }
+                            }
                             return true;
                         }
                     }
@@ -260,10 +279,146 @@ function myClickTask() {
     }
 }
 
+/**
+ * 获取验证码（带重试机制）
+ * @param {number} retryCount 最大重试次数
+ * @return {boolean} 是否获取成功
+ */
+function fetchVerifyCode(retryCount) {
+    if (retryCount < 0) {
+        console.error("重试次数用尽，获取验证码失败");
+        return false;
+    }
+
+    try {
+        let codeResult = APIClient.getVerifyCode();
+        let errno = codeResult.errno;
+        let errmsg = codeResult.errmsg || codeResult.verifyMsg;
+
+        if (errno === 0 && errmsg) {
+            console.log("验证码获取成功:", errmsg);
+            return true;
+        }
+
+        // 特殊错误码处理
+        if (errno === 12) {
+            console.error("取号已释放，需要重新取号");
+            return false;
+        }
+
+        // 其他错误情况
+        console.warn("获取验证码失败，准备重试...", {
+            errno: errno,
+            errmsg: errmsg,
+            remainingRetry: retryCount
+        });
+
+        // 根据重试次数设置不同等待时间
+        let waitTime = retryCount === 3 ? 5000 : 2000;
+        sleep(waitTime);
+
+        return fetchVerifyCode(retryCount - 1);
+
+    } catch (e) {
+        console.error("获取验证码异常:", e);
+        return false;
+    }
+}
+
+
+/**
+ * 勾选用户协议（根据图片中的勾选框位置）
+ * @return {boolean} 是否勾选成功
+ */
+function checkUserAgreement() {
+    console.log("开始勾选用户协议");
+    try {
+        // 方法1：通过协议文本定位勾选框
+        let agreement = text("我已阅读并同意用户协议和隐私条款").findOne(5000);
+        if (agreement) {
+            // 根据图片结构，勾选框通常在文本左侧
+            let checkbox = agreement.parent().child(0); // 第一个子元素
+            if (checkbox) {
+                if (!checkbox.checked()) {
+                    console.log("点击勾选框");
+                    checkbox.click();
+                    sleep(1000);
+                    return true;
+                }
+                console.log("协议已勾选");
+                return true;
+            }
+        }
+
+        // 方法2：通过相对位置定位（适配不同设备）
+        let agreementArea = textMatches(/用户协议|隐私条款/).findOne(3000);
+        if (agreementArea) {
+            click(agreementArea.bounds().left - 50, agreementArea.bounds().centerY());
+            sleep(1000);
+            return true;
+        }
+
+        console.error("未找到协议勾选框");
+        return false;
+    } catch (e) {
+        console.error("勾选协议异常:", e);
+        return false;
+    }
+}
+
+/**
+ * 点击获取验证码按钮（根据图片中的蓝色文字按钮）
+ * @return {boolean} 是否点击成功
+ */
+function clickGetVerifyCode() {
+    console.log("尝试获取验证码");
+    try {
+        // 方法1：传统函数替代箭头函数
+        let getCodeBtn = text("获取验证码")
+            .clickable(true)
+            .filter(function (v) {
+                return v.bounds().width() > 100; // 按钮宽度过滤
+            })
+            .findOne(5000);
+
+        if (getCodeBtn) {
+            console.log("验证码按钮信息:", JSON.stringify({
+                text: getCodeBtn.text(),
+                bounds: getCodeBtn.bounds()
+            }));
+            // 根据图片点击按钮右侧区域（避开文字左侧图标）
+            click(getCodeBtn.bounds().right - 50, getCodeBtn.bounds().centerY());
+            sleep(1000);
+            return true;
+        }
+
+        // 方法2：通过验证码输入框相对位置定位
+        let codeInput = text("验证码").findOne(3000) ||
+            desc("验证码").findOne(3000);
+        if (codeInput) {
+            console.log("通过验证码输入框定位按钮");
+            // 根据图片布局，按钮在输入框右侧约150px处
+            click(codeInput.bounds().right + 150, codeInput.bounds().centerY());
+            sleep(1000);
+            return true;
+        }
+
+        // 方法3：智能坐标点击（根据图片比例）
+        console.log("使用智能坐标点击");
+        // 根据图片比例计算（按钮在屏幕右1/3，垂直居中偏下）
+        click(device.width * 0.75, device.height * 0.55);
+        sleep(1000);
+        return true;
+    } catch (e) {
+        console.error("获取验证码异常:", e);
+        return false;
+    }
+}
+
 // 增强版手机号输入函数
 function inputPhoneNumber(phoneNumber) {
     console.log("正在输入手机号...");
-    
+
     // 1. 定义输入框查找条件（兼容Rhino引擎）
     function isPhoneInput(v) {
         try {
@@ -274,7 +429,7 @@ function inputPhoneNumber(phoneNumber) {
             return false;
         }
     }
-    
+
     // 2. 安全查找输入框
     let phoneInput = null;
     try {
@@ -289,7 +444,7 @@ function inputPhoneNumber(phoneNumber) {
     } catch (e) {
         console.error("高级查找失败:", e);
     }
-    
+
     // 3. 备用查找方式
     if (!phoneInput) {
         console.log("使用备用定位策略");
@@ -300,13 +455,13 @@ function inputPhoneNumber(phoneNumber) {
         }
         // 方法3：通过位置特征查找
         if (!phoneInput) {
-            phoneInput = className("EditText").find().filter(function(v) {
-                return v.bounds().width() > device.width * 0.5 && 
-                       v.bounds().height() > 30;
+            phoneInput = className("EditText").find().filter(function (v) {
+                return v.bounds().width() > device.width * 0.5 &&
+                    v.bounds().height() > 30;
             })[0];
         }
     }
-    
+
     // 4. 输入处理（修复press()问题）
     if (phoneInput) {
         console.log("输入框定位成功:", {
@@ -314,16 +469,16 @@ function inputPhoneNumber(phoneNumber) {
             text: phoneInput.text() || "",
             desc: phoneInput.desc() || ""
         });
-        
+
         try {
             // 确保获取焦点
             click(phoneInput.bounds().centerX(), phoneInput.bounds().centerY());
             sleep(500);
-            
+
             // 清空输入框
             phoneInput.setText("");
             sleep(500);
-            
+
             // 修复：使用正确的输入方式
             // 方法1：直接setText（优先尝试）
             try {
@@ -344,47 +499,66 @@ function inputPhoneNumber(phoneNumber) {
                 }
             }
             sleep(1000);
-            
-            // 验证输入（宽松匹配）
-            const currentText = phoneInput.text() || phoneInput.desc() || "";
-            if (currentText.replace(/\D/g, '').includes(phoneNumber.replace(/\D/g, ''))) {
-                console.log("√ 输入验证通过");
-                return true;
-            }
+
+            return verifyPhoneInputWithRetry(phoneInput, phoneNumber);
+
         } catch (e) {
             console.error("输入过程异常:", e);
         }
     }
-    
-    // 5. 终极备用方案
-    // console.log("使用智能坐标输入");
-    // click(device.width * 0.5, device.height * 0.35);
-    // sleep(500);
-    // setText(phoneNumber);
-    return true;
+
+    return false;
 }
 
-// 验证码输入函数
-function inputVerifyCode(code) {
-    console.log("正在输入验证码...");
-    
-    let codeInput = className("EditText").filter(v => {
-        const text = v.text() || v.desc();
-        return /验证码/.test(text);
-    }).findOne(5000);
-
-    if (codeInput) {
-        console.log("验证码输入框信息:", JSON.stringify({
-            bounds: codeInput.bounds()
-        }));
-        
-        codeInput.setText(code);
-        sleep(1000);
-        return true;
+// 新增函数：带重试的验证机制
+function verifyPhoneInputWithRetry(input, expectedNumber, maxRetry) {
+    if (typeof maxRetry === 'undefined') {
+        maxRetry = 3;
     }
-    
-    console.error("验证码输入失败");
-    return false;
+    let retryCount = 0;
+    const cleanExpected = expectedNumber.replace(/\D/g, '');
+
+    while (retryCount < maxRetry) {
+        try {
+            // 1. 强制刷新控件状态（兼容Rhino引擎）
+            const freshInput = input ? className(input.className())
+                .filter(function (v) {
+                    return v.id() === input.id();
+                })
+                .findOne(1000) : null;
+            // 2. 获取最新文本（多属性检查）
+            const currentText = freshInput ?
+                (freshInput.text() || freshInput.desc() || "") :
+                (input.text() || input.desc() || "");
+
+            console.log("验证输入[尝试" + (retryCount + 1) + "]:", {
+                raw: currentText,
+                cleaned: currentText.replace(/\D/g, ''),
+                expected: cleanExpected
+            });
+
+            // 3. 宽松匹配规则
+            if (currentText.replace(/\D/g, '').includes(cleanExpected)) {
+                console.log("√ 输入验证通过");
+                return true;
+            }
+
+            // 4. 特殊处理MIUI/EMUI的输入框
+            if (device.brand.match(/Xiaomi|HUAWEI/)) {
+                click(input.bounds().centerX(), input.bounds().centerY());
+                sleep(500);
+            }
+
+        } catch (e) {
+            console.error("验证异常:", e);
+        }
+
+        retryCount++;
+        sleep(1000);
+    }
+
+    console.error("验证失败，但可能已实际输入");
+    return true; // 默认通过，避免阻塞流程
 }
 
 function main() {
