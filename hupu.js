@@ -243,27 +243,12 @@ function myClickTask() {
                         let newCode = desc("+855").findOne(3000) ||
                             text("+855").findOne(3000);
                         if (newCode) {
-                            // 获取手机号（带兼容处理）
-                            var phoneNumber = APIClient.fetchPhoneNumber();
-                            console.log("获取到手机号码：", phoneNumber);
-                            // 输入手机号
-                            if (inputPhoneNumber(phoneNumber)) {
-                                // 勾选协议
-                                if (!checkUserAgreement()) {
-                                    console.warn("协议勾选失败，继续尝试获取验证码");
-                                    return false;
-                                }
-
-                                // 点击获取验证码按钮
-                                if (clickGetVerifyCode()) {
-                                    console.log("√ 验证码获取流程完成");
-
-                                    // 获取验证码（最多重试4次）
-                                    let verifyResult = fetchVerifyCode(4);
-                                    console.log("最终获取验证码结果:", verifyResult);
-                                    return true;
-                                }
+                            // 勾选协议
+                            if (!checkUserAgreement()) {
+                                console.warn("协议勾选失败，继续尝试获取验证码");
+                                return false;
                             }
+                            verifyCodePolling(3);
                             return true;
                         }
                     }
@@ -279,12 +264,52 @@ function myClickTask() {
     }
 }
 
+function verifyCodePolling(maxAttempts, interval) {
+    // 处理默认参数（兼容ES5）
+    if (typeof interval === 'undefined') {
+        interval = 60000; // 默认1分钟
+    }
+    console.log("开始验证码轮询流程，最大尝试次数:", maxAttempts);
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        console.log("--- 第" + attempt + "次尝试 ---");
+        
+        // 1. 获取并输入手机号
+        var phoneNumber = APIClient.fetchPhoneNumber();
+        console.log("获取手机号:", phoneNumber);
+        
+        if (!inputPhoneNumber(phoneNumber)) {
+            console.error("手机号输入失败");
+            continue;
+        }
+
+        // 2. 点击获取验证码（根据图片中的蓝色按钮）
+        if (!clickGetVerifyCode()) {
+            console.error("验证码按钮点击失败");
+            continue;
+        }
+
+        // 3. 检查验证码获取状态（根据图片中的倒计时）
+        if (checkVerifyCodeSent(4)) {
+            console.log("√ 验证码发送成功");
+        }
+
+        // 4. 轮询间隔（最后一次不等待）
+        if (attempt < maxAttempts) {
+            console.log("等待" + (interval/1000) + "秒后下一次轮询...");
+            sleep(interval);
+        }
+    }
+    
+    return true;
+}
+
 /**
  * 获取验证码（带重试机制）
  * @param {number} retryCount 最大重试次数
  * @return {boolean} 是否获取成功
  */
-function fetchVerifyCode(retryCount) {
+function checkVerifyCodeSent(retryCount) {
     if (retryCount < 0) {
         console.error("重试次数用尽，获取验证码失败");
         return false;
@@ -317,7 +342,7 @@ function fetchVerifyCode(retryCount) {
         let waitTime = retryCount === 3 ? 5000 : 2000;
         sleep(waitTime);
 
-        return fetchVerifyCode(retryCount - 1);
+        return checkVerifyCodeSent(retryCount - 1);
 
     } catch (e) {
         console.error("获取验证码异常:", e);
@@ -374,7 +399,7 @@ function clickGetVerifyCode() {
     console.log("尝试获取验证码");
     try {
         // 方法1：传统函数替代箭头函数
-        let getCodeBtn = text("获取验证码")
+        let getCodeBtn = textMatches(/获取验证码|重新发送/)
             .clickable(true)
             .filter(function (v) {
                 return v.bounds().width() > 100; // 按钮宽度过滤
