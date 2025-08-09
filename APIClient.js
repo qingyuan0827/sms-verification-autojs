@@ -117,19 +117,19 @@ var APIClient = {
 module.exports = APIClient;  // 关键导出
 
 // 测试代码
-function main() {
-    try {
-        // 直接使用全局对象（替代require）
-        const number = APIClient.fetchPhoneNumber();
+// function main() {
+//     try {
+//         // 直接使用全局对象（替代require）
+//         const number = APIClient.fetchPhoneNumber();
         
-        if (number) {
-            const codeResult = APIClient.getVerifyCode();
-            console.log("验证码结果:", codeResult);
-        }
-    } catch (e) {
-        console.error("执行出错:", e);
-    }
-}
+//         if (number) {
+//             const codeResult = APIClient.getVerifyCode();
+//             console.log("验证码结果:", codeResult);
+//         }
+//     } catch (e) {
+//         console.error("执行出错:", e);
+//     }
+// }
 
 // 执行测试
-main();
+// main();

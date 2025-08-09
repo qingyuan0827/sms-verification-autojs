@@ -57,12 +57,6 @@ function clickLoginButton() {
         sleep(3000);
     }
 
-    // 方法2：WebView处理
-    if (!loginButton) {
-        clickWebViewButton();
-        sleep(3000);
-    }
-
     // 方法3：动态坐标点击
     if (!textMatches(/手机号|密码/).findOne(3000)) {
         let { width, height } = device;
@@ -215,49 +209,53 @@ function myClickTask() {
     console.log("开始执行任务");
     try {
         // 1. 列出所有已安装应用（调试用）
-        var list = context.getPackageManager().getInstalledPackages(0);
-        console.log("已安装应用列表:");
-        for (var i = 0; i < Math.min(list.size(), 10); i++) { // 只打印前10个避免刷屏
-            console.log(i + ": " + list.get(i).packageName);
-        }
+        // var list = context.getPackageManager().getInstalledPackages(0);
+        // console.log("已安装应用列表:");
+        // for (var i = 0; i < Math.min(list.size(), 10); i++) { // 只打印前10个避免刷屏
+        //     console.log(i + ": " + list.get(i).packageName);
+        // }
 
-        // 2. 修正应用包名并启动
-        const apps = [
-            { name: "虎扑", pkg: "com.hupu.games" } // 确保包名正确
-        ];
+        // 修改为直接使用对象而非数组
+        const app = {
+            name: "虎扑",
+            pkg: "com.hupu.games"
+        };
 
-        apps.forEach(function (app) {
-            console.log("尝试启动 " + app.name + "..."); // 改用字符串拼接
-            if (isAppInstalled(app.pkg)) {
-                const success = launchApp(app.pkg);
-                console.log(app.name + "启动结果:", success); // 改用字符串拼接
-                if (!success) {
-                    return;
-                }
+        console.log("尝试启动 " + app.name + "...");
+
+        // 检查应用是否安装
+        if (isAppInstalled(app.pkg)) {
+            const success = launchApp(app.pkg);
+            console.log(app.name + "启动结果:", success);
+
+            if (success) {
                 // 点击登录按钮并验证
                 if (clickLoginButton()) {
                     console.log("成功进入登录页面");
-                    // 这里可以添加后续操作...
+
+                    // 国家选择流程
                     if (selectCountry()) {
-                        // 验证是否成功切换到+855
-                        let newCode = desc("+855").findOne(3000) ||
-                            text("+855").findOne(3000);
+                        // 验证国家代码是否切换成功
+                        let newCode = desc("+855").findOne(3000) || text("+855").findOne(3000);
                         if (newCode) {
-                            // 勾选协议
+                            // 勾选用户协议
                             if (!checkUserAgreement()) {
                                 console.warn("协议勾选失败，继续尝试获取验证码");
                                 return false;
                             }
+
+                            // 执行验证码轮询
                             verifyCodePolling(3);
                             return true;
                         }
                     }
                 }
-            } else {
-                console.error(app.name + "未安装!"); // 改用字符串拼接
             }
-            sleep(10 * 1000);
-        });
+        } else {
+            console.error(app.name + "未安装!");
+        }
+
+        sleep(10 * 1000);
 
     } catch (error) {
         console.error("任务执行出错:", error.toString());
@@ -270,14 +268,14 @@ function verifyCodePolling(maxAttempts, interval) {
         interval = 60000; // 默认1分钟
     }
     console.log("开始验证码轮询流程，最大尝试次数:", maxAttempts);
-    
+
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         console.log("--- 第" + attempt + "次尝试 ---");
-        
+
         // 1. 获取并输入手机号
         var phoneNumber = APIClient.fetchPhoneNumber();
         console.log("获取手机号:", phoneNumber);
-        
+
         if (!inputPhoneNumber(phoneNumber)) {
             console.error("手机号输入失败");
             continue;
@@ -296,11 +294,11 @@ function verifyCodePolling(maxAttempts, interval) {
 
         // 4. 轮询间隔（最后一次不等待）
         if (attempt < maxAttempts) {
-            console.log("等待" + (interval/1000) + "秒后下一次轮询...");
+            console.log("等待" + (interval / 1000) + "秒后下一次轮询...");
             sleep(interval);
         }
     }
-    
+
     return true;
 }
 
@@ -416,24 +414,6 @@ function clickGetVerifyCode() {
             sleep(1000);
             return true;
         }
-
-        // 方法2：通过验证码输入框相对位置定位
-        let codeInput = text("验证码").findOne(3000) ||
-            desc("验证码").findOne(3000);
-        if (codeInput) {
-            console.log("通过验证码输入框定位按钮");
-            // 根据图片布局，按钮在输入框右侧约150px处
-            click(codeInput.bounds().right + 150, codeInput.bounds().centerY());
-            sleep(1000);
-            return true;
-        }
-
-        // 方法3：智能坐标点击（根据图片比例）
-        console.log("使用智能坐标点击");
-        // 根据图片比例计算（按钮在屏幕右1/3，垂直居中偏下）
-        click(device.width * 0.75, device.height * 0.55);
-        sleep(1000);
-        return true;
     } catch (e) {
         console.error("获取验证码异常:", e);
         return false;
